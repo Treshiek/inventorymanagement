@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+      - name: Unzip project archive(s)
+        shell: pwsh
+        run: |
+          $zips = Get-ChildItem -Path . -Filter *.zip -Recurse -File |
+                  Where-Object { $_.FullName -notmatch '\\(node_modules|\.git)\\' }
+          if (-not $zips) { Write-Host "No .zip found - building repo contents directly."; exit 0 }
+          foreach ($z in $zips) {
+            $dest = Join-Path $env:GITHUB_WORKSPACE ("_unzipped\" + $z.BaseName)
+            Write-Host "Extracting $($z.Name) -> $dest"
+            Expand-Archive -LiteralPath $z.FullName -DestinationPath $dest -Force
+          }
+
+      - name: Locate project
+        id: find
+        shell: pwsh
+        run: |
+          $proj = Get-ChildItem -Path . -Filter *.csproj -Recurse -File |
+                  Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } |
+                  Sort-Object { $_.FullName -notmatch '_unzipped' } |   # prefer unzipped copy
+                  Select-Object -First 1
+          if (-not $proj) { Write-Error "No .csproj found in repo or zip."; exit 1 }
+          Write-Host "Building $($proj.FullName)"
+          "csproj=$($proj.FullName)" >> $env:GITHUB_OUTPUT
+          "outdir=$(Join-Path $proj.DirectoryName 'bin\Release')" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        run: msbuild "${{ steps.find.outputs.csproj }}" /restore /p:Configuration=Release /p:Platform=AnyCPU
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InventoryManagement-x64
+          path: ${{ steps.find.outputs.outdir }}
+          if-no-files-found: error
+          

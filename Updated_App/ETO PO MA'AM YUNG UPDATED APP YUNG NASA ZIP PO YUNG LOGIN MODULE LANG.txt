@@ -1,6 +1,0 @@
-chrism (admin)
-admin1
-
-jam1 (user)
-admin2
-
